@@ -1,0 +1,87 @@
+########################################
+# Conditional SDE w/ D4RL Dataset (Default)
+########################################
+import arq.modules.mlp
+import arq.modules.optimizer
+import arq.modules.offline_dataset
+import arq.modules.data_preprocessor
+import arq.algo.sde_conditional
+import arq.modules.eval
+import arq.scripts.train_sde_conditional
+
+num_updates = 1_000_000
+
+####################
+# DFO
+####################
+arq.modules.data_preprocessor.Preprocessor.ob_dim = %ob_dim
+arq.modules.data_preprocessor.Preprocessor.ac_dim = %ac_dim
+arq.modules.data_preprocessor.Preprocessor.ac_scale = %ac_scale
+arq.modules.data_preprocessor.Preprocessor.clip_std = 0.05
+arq.modules.data_preprocessor.Preprocessor.prepare.a_margin = 0.05
+
+arq.algo.sde_conditional.ScoreNet.num_res_blocks = 3
+arq.algo.sde_conditional.ScoreNet.embed_dim = 256
+arq.algo.sde_conditional.ScoreNet.activation = @swish #@swish, @relu
+
+arq.algo.sde_conditional.SDE.Preprocessor = @arq.modules.data_preprocessor.Preprocessor
+arq.algo.sde_conditional.SDE.Score = @arq.algo.sde_conditional.ScoreNet
+arq.algo.sde_conditional.SDE.ema = 0.999
+
+arq.algo.sde_conditional.VPSDE.beta_max = 20.0
+
+arq.algo.sde_conditional.SDE_Ensemble.Base = @arq.algo.sde_conditional.VPSDE
+arq.algo.sde_conditional.SDE_Ensemble.num_ensembles = 3
+
+# PC sampler
+arq.algo.sde_conditional.build_pc_sampler.num_t_steps = 500
+arq.algo.sde_conditional.build_pc_sampler.num_mcmc_steps = 1
+arq.algo.sde_conditional.build_pc_sampler.gradient_snr = 0.16
+arq.algo.sde_conditional.build_pc_sampler.eps_t = 1e-3
+arq.algo.sde_conditional.build_pc_sampler.batch_independent_step_size = True
+
+### \beta(a|s)
+arq.algo.sde_conditional.build_pi.build_sampler = @arq.algo.sde_conditional.build_pc_sampler
+arq.algo.sde_conditional.build_pi.num_samples = 1
+arq.algo.sde_conditional.build_pi.scale = %ac_scale
+
+# Training
+SDE/modules.optimizer.AdamOptimizer.lr = 1e-4
+arq.algo.sde_conditional.prepare_update.Optimizer = @SDE/modules.optimizer.AdamOptimizer
+arq.algo.sde_conditional.prepare_update.batch_size = 512
+arq.algo.sde_conditional.prepare_update.weighting = 'marginal_std'
+
+arq.algo.sde_conditional.SDE_Ensemble.prepare_update.train_split_ratio = 1.0
+
+####################
+# Training Setup
+####################
+arq.modules.offline_dataset.D4RL_Dataset.env_id = %env_id
+
+arq.modules.offline_dataset.RoboMimicDataset.env_id = %env_id
+arq.modules.offline_dataset.RoboMimicDataset.split = 'all'
+
+arq.modules.offline_dataset.Dataset.gamma = %gamma
+arq.modules.offline_dataset.Dataset.train_ratio = 0.9
+arq.modules.offline_dataset.Dataset.n_steps = 1 # doesn't matter
+arq.modules.offline_dataset.Dataset.sarsa = False # doesn't matter
+arq.modules.offline_dataset.Dataset.valid_next_only = False # doesn't matter
+arq.modules.offline_dataset.bc_epoch.type = 'all' # 'train' or 'all'
+
+arq.scripts.train_sde_conditional.run.SDE = @arq.algo.sde_conditional.VPSDE
+arq.scripts.train_sde_conditional.run.Dataset = @arq.modules.offline_dataset.D4RL_Dataset
+arq.scripts.train_sde_conditional.run.epoch_fn_name = 'bc_epoch'
+
+arq.scripts.train_sde_conditional.run.num_updates = %num_updates
+arq.scripts.train_sde_conditional.run.log_period = 100
+arq.scripts.train_sde_conditional.run.save_period = 1_000_001
+
+arq.modules.eval.init_batch_env.env_id = %env_id
+arq.modules.eval.init_batch_env.num_parallel_envs = 10
+batch_env/gin.singleton.constructor = @arq.modules.eval.init_batch_env
+
+arq.modules.eval.run_pi_parallel.batch_env = @batch_env/gin.singleton()
+arq.modules.eval.run_pi_parallel.num_trajs = 100
+
+arq.scripts.train_sde_conditional.run.Evals = [@last/arq.modules.eval.run_pi_parallel]
+arq.scripts.train_sde_conditional.run.eval_periods = [%num_updates]

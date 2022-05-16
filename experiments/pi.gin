@@ -1,0 +1,130 @@
+######################
+# Policy extraction given Q-function using AWR style BC
+######################
+import arq.modules.mlp
+import arq.modules.optimizer
+import arq.modules.data_preprocessor
+import arq.modules.Q
+import arq.modules.policy
+import arq.modules.offline_dataset
+import arq.scripts.bc
+import arq.modules.eval
+
+# Should be given via command-line arguments
+env_id = None
+Q_chkpt = None
+pregen_ac = None
+pregen_ll = None
+pregen_ll_original = None
+
+########## Hyper-parqmeters
+threshold = -5
+alpha = 1.0 # for AWR
+num_updates = 1_000_000
+
+#####################
+## Training
+#####################
+# Eval
+arq.modules.eval.init_batch_env.env_id = %env_id
+arq.modules.eval.init_batch_env.num_parallel_envs = 10
+batch_env/gin.singleton.constructor = @arq.modules.eval.init_batch_env
+
+arq.modules.eval.run_pi_parallel.batch_env = @batch_env/gin.singleton()
+last/arq.modules.eval.run_pi_parallel.num_trajs = 100
+
+# Training
+#arq.scripts.bc.train_pi.Policy = @det_small/arq.modules.policy.DeterministicPolicy
+#arq.scripts.bc.train_pi.Policy = @det_large/arq.modules.policy.DeterministicPolicy
+arq.scripts.bc.train_pi.Policy = @arq.modules.policy.StateIndependentStochasticPolicy
+
+arq.scripts.bc.train_pi.Dataset = @arq.scripts.bc.Dataset
+arq.scripts.bc.train_pi.num_updates = %num_updates
+arq.scripts.bc.train_pi.save_period = 1_000_001
+arq.scripts.bc.train_pi.Evals = [@last/arq.modules.eval.run_pi_parallel]
+arq.scripts.bc.train_pi.eval_periods = [100_000]
+
+#####################
+## Dataset
+#####################
+arq.modules.offline_dataset.Dataset.gamma = %gamma
+arq.modules.offline_dataset.Dataset.train_ratio = 0.9
+arq.modules.offline_dataset.Dataset.n_steps = 1
+arq.modules.offline_dataset.Dataset.sarsa = False
+arq.modules.offline_dataset.Dataset.valid_next_only = False
+arq.modules.offline_dataset.bc_epoch.type = 'all'
+
+arq.modules.offline_dataset.D4RL_Dataset.env_id = %env_id
+
+arq.modules.offline_dataset.RoboMimicDataset.env_id = %env_id
+arq.modules.offline_dataset.RoboMimicDataset.split = 'all'
+
+arq.scripts.bc.Dataset.BaseDataset = @arq.modules.offline_dataset.D4RL_Dataset
+arq.scripts.bc.Dataset.Q = @arq.modules.Q.ActionValue
+arq.scripts.bc.Dataset.Q_chkpt = %Q_chkpt
+arq.scripts.bc.Dataset.action_samples_pkl = %pregen_ac
+arq.scripts.bc.Dataset.action_samples_likelihood_pkl = %pregen_ll
+arq.scripts.bc.Dataset.action_likelihood_pkl = %pregen_ll_original
+
+arq.scripts.bc.awr_epoch.ll_threshold = %threshold
+
+######################
+# Q Network Setting
+######################
+Q/arq.modules.mlp.MLP.num_layers = 2
+Q/arq.modules.mlp.MLP.in_dim = (%ob_dim,%ac_dim)
+Q/arq.modules.mlp.MLP.dim = 256
+Q/arq.modules.mlp.MLP.out_dim = 1
+arq.modules.Q.ActionValue.Net = @Q/arq.modules.mlp.MLP
+arq.modules.Q.ActionValue.build_target_net = True
+
+######################
+# Policy Network Setting
+######################
+arq.modules.data_preprocessor.EmptyPreprocessor.ob_dim = %ob_dim
+arq.modules.data_preprocessor.EmptyPreprocessor.ac_dim = %ac_dim
+arq.modules.data_preprocessor.EmptyPreprocessor.ac_scale = %ac_scale
+
+# Common for Deterministic Policy
+arq.modules.policy.DeterministicPolicy.Preprocessor = @arq.modules.data_preprocessor.EmptyPreprocessor
+arq.modules.policy.DeterministicPolicy.squash_output = False
+arq.modules.policy.DeterministicPolicy.scale = %ac_scale
+
+# Small network.
+det_small/arq.modules.mlp.MLP.num_layers = 2
+det_small/arq.modules.mlp.MLP.in_dim = %ob_dim
+det_small/arq.modules.mlp.MLP.dim = 256
+det_small/arq.modules.mlp.MLP.out_dim = %ac_dim
+det_small/arq.modules.policy.DeterministicPolicy.Net = @det_small/arq.modules.mlp.MLP
+
+# Large network.
+det_large/arq.modules.mlp.MLPResNet.num_res_blocks = 4 # total 8 layers
+det_large/arq.modules.mlp.MLPResNet.in_dim = %ob_dim
+det_large/arq.modules.mlp.MLPResNet.dim = 2048
+det_large/arq.modules.mlp.MLPResNet.out_dim = %ac_dim
+det_large/arq.modules.mlp.MLPResNet.activation = 'relu'
+det_large/arq.modules.policy.DeterministicPolicy.Net = @det_large/arq.modules.mlp.MLPResNet
+
+det/modules.optimizer.AdamOptimizer.lr = 3e-4
+arq.modules.policy.DeterministicPolicy.prepare_behavior_clone.Optimizer = @det/modules.optimizer.AdamOptimizer
+arq.modules.policy.DeterministicPolicy.prepare_behavior_clone.batch_size = 512
+arq.modules.policy.DeterministicPolicy.prepare_behavior_clone.beta = %alpha
+arq.modules.policy.DeterministicPolicy.prepare_behavior_clone.update_pp = False
+
+# Independent Stochastic network
+arq.modules.policy.StochasticPolicy.Preprocessor = @arq.modules.data_preprocessor.EmptyPreprocessor
+arq.modules.policy.StochasticPolicy.squash_distribution = False
+arq.modules.policy.StochasticPolicy.scale = %ac_scale
+
+ind_sto/arq.modules.mlp.MLP.num_layers = 2
+ind_sto/arq.modules.mlp.MLP.in_dim = %ob_dim
+ind_sto/arq.modules.mlp.MLP.dim = 256
+ind_sto/arq.modules.mlp.MLP.out_dim = %ac_dim
+arq.modules.policy.StateIndependentStochasticPolicy.Net = @ind_sto/arq.modules.mlp.MLP
+arq.modules.policy.StateIndependentStochasticPolicy.ac_dim = %ac_dim
+
+sto/modules.optimizer.AdamOptimizer.lr = 3e-4
+arq.modules.policy.StochasticPolicy.prepare_behavior_clone.Optimizer = @sto/modules.optimizer.AdamOptimizer
+arq.modules.policy.StochasticPolicy.prepare_behavior_clone.batch_size = 512
+arq.modules.policy.StochasticPolicy.prepare_behavior_clone.beta = %alpha
+arq.modules.policy.StochasticPolicy.prepare_behavior_clone.update_pp = False

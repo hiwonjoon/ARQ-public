@@ -1,0 +1,55 @@
+# Action Value Function Training
+import arq.scripts.policy_evaluation
+import arq.modules.Q
+import arq.modules.offline_dataset
+import arq.modules.mlp
+import arq.modules.optimizer
+
+env_id = None # provide via command-line
+
+## Dataset
+arq.modules.offline_dataset.D4RL_Dataset.env_id = %env_id
+
+arq.modules.offline_dataset.RoboMimicDataset.env_id = %env_id
+arq.modules.offline_dataset.RoboMimicDataset.split = 'all'
+
+arq.modules.offline_dataset.Dataset.gamma = %gamma
+arq.modules.offline_dataset.Dataset.train_ratio = 0.9
+arq.modules.offline_dataset.Dataset.n_steps = 1
+arq.modules.offline_dataset.Dataset.sarsa = True
+arq.modules.offline_dataset.Dataset.valid_next_only = False
+
+arq.modules.offline_dataset.prepare_dataset.type = 'all'
+arq.modules.offline_dataset.prepare_dataset.batch_size = 100
+arq.modules.offline_dataset.prepare_dataset.window_size = -1
+arq.modules.offline_dataset.prepare_dataset.shuffle_size = 'max'
+
+arq.modules.offline_dataset.t_0_batch.batch_size = 1000
+arq.modules.offline_dataset.t_0_batch.take = -1
+
+arq.modules.offline_dataset.eval_batch.batch_size = 1000
+arq.modules.offline_dataset.eval_batch.take = 10000
+
+######################
+# Q Network Setting
+######################
+Q/arq.modules.mlp.MLP.num_layers = 2
+Q/arq.modules.mlp.MLP.in_dim = (%ob_dim,%ac_dim)
+Q/arq.modules.mlp.MLP.dim = 256
+Q/arq.modules.mlp.MLP.out_dim = 1
+arq.modules.Q.ActionValue.Net = @Q/arq.modules.mlp.MLP
+arq.modules.Q.ActionValue.build_target_net = True
+
+Q/modules.optimizer.AdamOptimizer.lr = 1e-4
+arq.modules.Q.ActionValue.prepare_update.polyak = 0.995
+arq.modules.Q.ActionValue.prepare_update.Optimizer = @Q/modules.optimizer.AdamOptimizer
+
+######################
+# Training
+######################
+arq.scripts.policy_evaluation.run.Value = @arq.modules.Q.ActionValue
+arq.scripts.policy_evaluation.run.Dataset = @arq.modules.offline_dataset.D4RL_Dataset
+arq.scripts.policy_evaluation.run.num_updates = 1_000_000
+arq.scripts.policy_evaluation.run.save_period = 100_000
+arq.scripts.policy_evaluation.run.Evals = [@arq.scripts.policy_evaluation.eval_value]
+arq.scripts.policy_evaluation.run.eval_periods = [100_000]

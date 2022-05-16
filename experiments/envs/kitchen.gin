@@ -1,0 +1,9 @@
+# Kitchen
+gamma = 0.99
+ob_dim = 60
+ac_dim = 9
+ac_dim_times_2 = 18
+ob_dim_plus_ac_dim = 69
+ac_scale = 1.
+
+test_envs = ['kitchen-complete-v0', 'kitchen-partial-v0', 'kitchen-mixed-v0']

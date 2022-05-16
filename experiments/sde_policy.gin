@@ -1,0 +1,65 @@
+########################################
+# Indirect Policy w/ value function Test
+########################################
+import arq.modules.Q
+import arq.modules.mlp
+import arq.algo.sde_conditional
+import arq.algo.penalty
+import arq.modules.eval
+import arq.scripts.sde_policy
+
+num_trajs = 100
+
+env_id = None
+SDE_chkpt = None
+Q_chkpt = None
+
+threshold = -5
+num_samples = 30
+alpha = 1.0 
+stochastic = True
+
+### Policy Builder
+sde_conditional.build_pc_sampler.num_t_steps=500
+sde_conditional.build_pc_sampler.num_mcmc_steps=1
+sde_conditional.build_pc_sampler.gradient_snr=0.16
+sde_conditional.build_pc_sampler.eps_t=1e-3
+sde_conditional.build_pc_sampler.batch_independent_step_size = True
+
+arq.algo.sde_conditional.build_log_likelihood.num_random_projections = 10
+
+arq.algo.penalty.build_penalty_fn.build_log_likelihood = @arq.algo.sde_conditional.build_log_likelihood
+arq.algo.penalty.build_penalty_fn.threshold = %threshold
+
+arq.algo.penalty.build_penalized_Q.Q = @arq.modules.Q.ActionValue
+arq.algo.penalty.build_penalized_Q.Q_chkpt = %Q_chkpt
+arq.algo.penalty.build_penalized_Q.alpha = %alpha
+arq.algo.penalty.build_penalized_Q.build_penalty_fn = @arq.algo.penalty.build_penalty_fn
+
+# How to sample?
+sde_conditional.build_pi.build_sampler = @sde_conditional.build_pc_sampler
+sde_conditional.build_pi.num_samples = %num_samples
+sde_conditional.build_pi.scale = %ac_scale
+sde_conditional.build_pi.build_grader = @arq.algo.penalty.build_penalized_Q
+sde_conditional.build_pi.advantage = True
+
+# Test Run
+arq.scripts.sde_policy.test.SDE = None
+arq.scripts.sde_policy.test.SDE_chkpt = %SDE_chkpt
+
+arq.modules.eval.init_batch_env.env_id = %env_id
+arq.modules.eval.init_batch_env.num_parallel_envs = 10
+batch_env/gin.singleton.constructor = @arq.modules.eval.init_batch_env
+
+arq.modules.eval.run_pi_parallel.batch_env = @batch_env/gin.singleton()
+arq.modules.eval.run_pi_parallel.num_trajs = 100
+arq.modules.eval.run_pi_parallel.stochastic = %stochastic
+
+# Q network
+Q/arq.modules.mlp.MLP.num_layers = 2
+Q/arq.modules.mlp.MLP.in_dim = (%ob_dim,%ac_dim)
+Q/arq.modules.mlp.MLP.dim = 256
+Q/arq.modules.mlp.MLP.out_dim = 1
+
+arq.modules.Q.ActionValue.Net = @Q/arq.modules.mlp.MLP
+arq.modules.Q.ActionValue.build_target_net = True

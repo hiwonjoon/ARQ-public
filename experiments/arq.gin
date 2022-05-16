@@ -1,0 +1,77 @@
+######################
+# "Explicit" Q learning
+# - Implicit Q learning w/o Quantile regression.
+# - By explicitly use action beta samples.
+######################
+import arq.modules.mlp
+import arq.modules.optimizer
+import arq.modules.Q
+import arq.modules.offline_dataset
+import arq.scripts.train_arq
+
+# Should be given via command-line arguments
+env_id = None
+pregen_ac = None
+pregen_ll = None
+pregen_ll_original = None
+
+########## Hyper-parameters
+threshold = -5
+K = 9
+lr = 3e-4
+
+#####################
+## Training
+#####################
+# q-related
+arq.scripts.train_arq.prepare_update.batch_size = 512
+arq.scripts.train_arq.prepare_update.shuffle_size = 'max'
+arq.scripts.train_arq.prepare_update.K = %K
+
+# Training Loop
+arq.scripts.train_arq.train.ActionValue = @arq.modules.Q.ActionValue
+arq.scripts.train_arq.train.num_qs = 2
+arq.scripts.train_arq.train.Policy = None
+arq.scripts.train_arq.train.Dataset = @arq.scripts.train_arq.Dataset
+arq.scripts.train_arq.train.num_updates = 1_000_000
+arq.scripts.train_arq.train.save_period = 100_000
+arq.scripts.train_arq.train.Evals = []
+arq.scripts.train_arq.train.eval_periods = []
+
+#####################
+## Dataset
+#####################
+arq.modules.offline_dataset.Dataset.gamma = %gamma
+arq.modules.offline_dataset.Dataset.train_ratio = 0.9
+arq.modules.offline_dataset.Dataset.n_steps = 1
+arq.modules.offline_dataset.Dataset.sarsa = False
+arq.modules.offline_dataset.Dataset.valid_next_only = False
+arq.modules.offline_dataset.epoch.type = 'all'
+
+arq.modules.offline_dataset.D4RL_Dataset.env_id = %env_id
+
+arq.modules.offline_dataset.RoboMimicDataset.env_id = %env_id
+arq.modules.offline_dataset.RoboMimicDataset.split = 'all'
+
+arq.scripts.train_arq.Dataset.BaseDataset = @arq.modules.offline_dataset.D4RL_Dataset
+arq.scripts.train_arq.Dataset.action_likelihood_pkl = %pregen_ll_original
+arq.scripts.train_arq.Dataset.action_samples_pkl = %pregen_ac
+arq.scripts.train_arq.Dataset.action_samples_likelihood_pkl = %pregen_ll
+
+arq.scripts.train_arq.epoch.sarsa = True
+arq.scripts.train_arq.epoch.ll_threshold = %threshold
+
+######################
+# Q Network Setting
+######################
+Q/arq.modules.mlp.MLP.num_layers = 2
+Q/arq.modules.mlp.MLP.in_dim = (%ob_dim,%ac_dim)
+Q/arq.modules.mlp.MLP.dim = 256
+Q/arq.modules.mlp.MLP.out_dim = 1
+arq.modules.Q.ActionValue.Net = @Q/arq.modules.mlp.MLP
+arq.modules.Q.ActionValue.build_target_net = True
+
+# Train
+Q/modules.optimizer.AdamOptimizer.lr = %lr
+arq.modules.Q.ActionValue.prepare_update.polyak = 0.995
+arq.modules.Q.ActionValue.prepare_update.Optimizer = @Q/modules.optimizer.AdamOptimizer

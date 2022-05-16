@@ -1,0 +1,18 @@
+import arq.algo.sde_conditional
+import arq.scripts.sampling
+
+SDE_chkpt = None
+
+### Policy Builder
+sampling/sde_conditional.build_pc_sampler.num_t_steps=500
+sampling/sde_conditional.build_pc_sampler.num_mcmc_steps=1
+sampling/sde_conditional.build_pc_sampler.gradient_snr=0.16
+sampling/sde_conditional.build_pc_sampler.eps_t=1e-3
+sampling/sde_conditional.build_pc_sampler.batch_independent_step_size = True
+
+sampling/arq.algo.sde_conditional.build_log_likelihood.num_random_projections = 10
+
+sampling.run.SDE_chkpt = %SDE_chkpt
+sampling.run.build_sampler = @sampling/sde_conditional.build_pc_sampler
+sampling.run.build_log_likelihood = @sampling/sde_conditional.build_log_likelihood
+sampling.run.num_samples = 30

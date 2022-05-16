@@ -1,0 +1,15 @@
+# RoboMomic -- Lift
+
+## Obsevation Dimension can be checked by running those scripts
+### To check the dimension of each modalities.
+# python -m robomimic.scripts.get_dataset_info --dataset ~/.robomimic/datasets/lift/ph/low_dim_dense.hdf5 # will show the dimension of each modalities
+## 
+### To check the what modalities are used.
+# python -m robomimic.scripts.generate_paper_configs --config_dir ./tmp
+# cat ./tmp/core/lift/ph/low_dim/bc.json | python3 -c "import sys, json; print(json.load(sys.stdin)['observation']['modalities'])"
+## 
+
+gamma = 0.99
+ob_dim = 19
+ac_dim = 7
+ac_scale = 1.
